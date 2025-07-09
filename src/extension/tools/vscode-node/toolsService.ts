@@ -91,6 +91,17 @@ export class ToolsService extends BaseToolsService {
 				return false;
 			}
 
+			// 0.5. Check if any toolset containing this tool is enabled via the tool picker
+			const toolsetContainingThisTool = packageJson.contributes.languageModelToolSets.find(toolset => 
+				toolset.tools.some(toolInSet => getToolName(toolInSet) === tool.name)
+			);
+			if (toolsetContainingThisTool) {
+				const toolsetSelection = request.tools.get(toolsetContainingThisTool.name);
+				if (toolsetSelection === true) {
+					return true;
+				}
+			}
+
 			// 1. Check for what the consumer wants explicitly
 			const explicit = filter?.(tool);
 			if (explicit !== undefined) {
