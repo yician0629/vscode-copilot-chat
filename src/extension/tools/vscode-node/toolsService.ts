@@ -10,6 +10,7 @@ import { IInstantiationService } from '../../../util/vs/platform/instantiation/c
 import { getContributedToolName, getToolName, mapContributedToolNamesInSchema, mapContributedToolNamesInString, ToolName } from '../common/toolNames';
 import { ICopilotTool, ToolRegistry } from '../common/toolsRegistry';
 import { BaseToolsService } from '../common/toolsService';
+import { packageJson } from '../../../platform/env/common/packagejson';
 
 export class ToolsService extends BaseToolsService {
 	declare _serviceBrand: undefined;
@@ -78,6 +79,10 @@ export class ToolsService extends BaseToolsService {
 
 	getEnabledTools(request: vscode.ChatRequest, filter?: (tool: vscode.LanguageModelToolInformation) => boolean | undefined): vscode.LanguageModelToolInformation[] {
 		const toolMap = new Map(this.tools.map(t => [t.name, t]));
+		
+		// Expand any toolset references to individual tool names
+		const expandedToolNames = this.expandToolsetReferences(request.toolReferences);
+		const expandedToolNamesSet = new Set(expandedToolNames);
 
 		return this.tools.filter(tool => {
 			// 0. Check if the tool was disabled via the tool picker. If so, it must be disabled here
@@ -100,7 +105,12 @@ export class ToolsService extends BaseToolsService {
 				}
 			}
 
-			// 3. If this tool is neither enabled nor disabled, then consumer didn't have opportunity to enable/disable it.
+			// 3. Check if this tool is part of an expanded toolset reference
+			if (expandedToolNamesSet.has(tool.name)) {
+				return true;
+			}
+
+			// 4. If this tool is neither enabled nor disabled, then consumer didn't have opportunity to enable/disable it.
 			// This can happen when a tool is added during another tool call (e.g. installExt tool installs an extension that contributes tools).
 			if (toolPickerSelection === undefined && tool.tags.includes('extension_installed_by_tool')) {
 				return true;
@@ -113,5 +123,28 @@ export class ToolsService extends BaseToolsService {
 
 			return false;
 		});
+	}
+
+	/**
+	 * Expands toolset references to individual tool names.
+	 * If a tool reference name matches a toolset name, returns all tools in that toolset.
+	 * Otherwise, returns the original tool reference name.
+	 */
+	private expandToolsetReferences(toolReferences: readonly vscode.ChatLanguageModelToolReference[]): string[] {
+		const expandedToolNames: string[] = [];
+		
+		for (const ref of toolReferences) {
+			// Check if this reference name matches a toolset
+			const toolset = packageJson.contributes.languageModelToolSets.find(ts => ts.name === ref.name);
+			if (toolset) {
+				// This is a toolset reference, expand it to individual tools
+				expandedToolNames.push(...toolset.tools.map(toolName => getToolName(toolName)));
+			} else {
+				// This is a regular tool reference
+				expandedToolNames.push(getToolName(ref.name));
+			}
+		}
+		
+		return expandedToolNames;
 	}
 }
